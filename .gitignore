@@ -1,4 +1,3 @@
 .work/
 artifacts/
-.ignore
-roadmap.md
+*.img

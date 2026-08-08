@@ -1,27 +1,43 @@
-English | [Русский](docs/README_RU.md)
+Русский | [English](docs/README_EN.md)
 
 ---
 
-# Nothing Stock Kernel Builder
+# Nothing Phone (3a) Asteroids GKI Builder
 
-> [!WARNING]
-> Nothing Phone (3a) and (3a) Pro builds currently do not work: the published NothingOSS source uses the older 6.1.134 kernel, while devices run 6.1.157. Keep a backup of the original boot image before flashing.
+Воспроизводимая сборка загрузочного ядра для Nothing Phone (3a) и Phone (3a) Pro (`Asteroids`) через Android Kleaf/Bazel.
 
-GitHub Actions builder for unmodified NothingOSS 6.1 kernels. This branch does not include KernelSU, SUSFS, Baseband Guard, BBRv3 or other custom patches.
+Это не сборка Qualcomm `pineapple_gki`. В `boot.img` помещается базовый GKI из цели `//common:kernel_aarch64`, совместимый со стоковыми vendor-модулями Nothing OS.
 
-## Supported devices
+## Что делает workflow
 
-- Nothing Phone (3a) & (3a) Pro (`asteroids`, A059/A059P)
-- Nothing Phone (4a) (`frogger`, A069)
+1. Клонирует форк [`nothing-users/android_kernel_msm-6.1_nothing_sm7635`](https://github.com/nothing-users/android_kernel_msm-6.1_nothing_sm7635) и ветку `sm7635/b/mr_Frogger`.
+2. Загружает Android kernel manifest `common-android14-6.1-2023-06` и необходимые зависимости Kleaf.
+3. Подключает исходники одновременно как `common` и `msm-kernel`, как в проверенной локальной сборке.
+4. Собирает `//common:kernel_aarch64` с KMI-списком Qualcomm.
+5. Проверяет обязательные параметры конфигурации и наличие `Image`, `Image.gz` и `System.map`.
+6. Загружает зафиксированный boot archive `Asteroids_B4.1-260618-1048` из Nothing Archive, проверяет SHA-256 архива и извлечённого `boot.img`, заменяет только kernel на новый `Image.gz`, восстанавливает размер раздела и повторно проверяет содержимое образа.
+7. Публикует готовый `boot.img`, ядро, конфигурацию, карту символов, лог и SHA-256.
 
-## Build sources
+## Запуск
 
-- [NothingOSS 6.1 kernel source](https://github.com/NothingOSS/android_kernel_msm-6.1_nothing_sm7635)
-- [Android Clang `clang-r487747c`](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+/refs/heads/main-kernel-build-2023/clang-r487747c/)
-- [AnyKernel3](https://github.com/weekanya/AnyKernel3)
+Откройте **Actions → Build Asteroids GKI → Run workflow**.
 
-## Output
+Обычно достаточно оставить `kernel_ref` равным `sm7635/b/mr_Frogger`. Можно указать другой branch, tag или commit этого же форка, если он содержит поддержку Asteroids Kleaf.
 
-- `<device>-stock-anykernel3` — flashable stock kernel ZIP
-- `<device>-stock-build-files` — `Image`, config, `System.map`, logs and metadata
-- `<codename>-stock-developer-diagnostics` — failure diagnostics when developer mode is enabled
+Результат появится в artifact `asteroids-gki-<run number>`. Опция `create_release` дополнительно создаёт GitHub Release.
+
+## Проверка без прошивки
+
+Сначала всегда используйте временную загрузку:
+
+```text
+fastboot boot boot.img
+```
+
+После загрузки проверьте звук, камеры, Wi-Fi, Bluetooth, мобильную сеть, зарядку, отпечаток и сон. Сохраните оригинальный образ перед `fastboot flash boot`.
+
+## Источник стокового образа
+
+Стоковый образ берётся из релиза [`Asteroids_B4.1-260618-1048`](https://github.com/spike0en/nothing_archive/releases/tag/Asteroids_B4.1-260618-1048) проекта [Nothing Archive](https://github.com/spike0en/nothing_archive). В workflow зафиксированы точный URL, SHA-256 архива и SHA-256 `boot.img`. Этот boot image побайтно совпадает с образом, на котором была проверена локальная сборка.
+
+Nothing Archive используется с указанием авторства. OEM firmware принадлежит Nothing Technology Limited и загружается только во время сборки; binary firmware не хранится в этом репозитории. Workflow прекращает работу при несовпадении контрольной суммы или структуры boot image.
