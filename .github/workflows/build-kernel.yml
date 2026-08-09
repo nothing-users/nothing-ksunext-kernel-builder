@@ -1,4 +1,4 @@
-name: Build Asteroids GKI with KernelSU Next
+name: Build Asteroids GKI with KernelSU Next and SUSFS
 
 on:
   workflow_dispatch:
@@ -12,6 +12,19 @@ on:
         description: KernelSU Next branch, tag, or commit
         required: true
         default: dev
+        type: string
+      ksun_patchset:
+        description: KernelSU Next compatibility patchset used by the SUSFS build
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - stable
+      susfs_ref:
+        description: SUSFS branch, tag, or commit
+        required: true
+        default: gki-android14-6.1
         type: string
       create_release:
         description: Publish the resulting files as a GitHub Release
@@ -29,6 +42,10 @@ concurrency:
 env:
   KERNEL_REPOSITORY: https://github.com/nothing-users/android_kernel_msm-6.1_nothing_sm7635.git
   KSU_REPOSITORY: https://github.com/KernelSU-Next/KernelSU-Next.git
+  SUSFS_REPOSITORY: https://gitlab.com/simonpunk/susfs4ksu.git
+  SUSFS_PATCH: kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+  PATCHES_REPOSITORY: https://github.com/WildKernels/kernel_patches.git
+  PATCHES_COMMIT: 24865a0bc50dfb65b04153cc9ad2879a9c26cc7e
   ANDROID_MANIFEST_URL: https://android.googlesource.com/kernel/manifest
   ANDROID_MANIFEST_BRANCH: common-android14-6.1-2023-06
   KLEAF_TARGET: //common:kernel_aarch64
@@ -40,11 +57,21 @@ env:
 
 jobs:
   build:
-    name: Asteroids GKI + KernelSU Next
+    name: Asteroids GKI — ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    permissions:
-      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: ksunext
+            label: KernelSU Next
+            artifact: asteroids-ksunext
+            susfs: false
+          - variant: ksunext-susfs
+            label: KernelSU Next + SUSFS
+            artifact: asteroids-ksunext-susfs
+            susfs: true
 
     steps:
       - name: Checkout builder
@@ -63,7 +90,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential curl file flex git jq libelf-dev libssl-dev p7zip-full python3 rsync unzip zip
+          sudo apt-get install -y bc bison build-essential curl file flex git jq libelf-dev libssl-dev p7zip-full patch python3 rsync unzip zip
 
       - name: Clone patched kernel fork
         id: kernel
@@ -105,6 +132,39 @@ jobs:
           printf 'tag=%s\n' "$ksu_tag" >> "$GITHUB_OUTPUT"
           printf 'version_code=%s\n' "$ksu_version_code" >> "$GITHUB_OUTPUT"
 
+      - name: Integrate SUSFS
+        if: ${{ matrix.susfs }}
+        id: susfs
+        shell: bash
+        env:
+          KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
+          KSU_DIR: ${{ runner.temp }}/KernelSU-Next
+          SUSFS_REF: ${{ inputs.susfs_ref }}
+          KSU_PATCHSET: ${{ inputs.ksun_patchset }}
+        run: |
+          set -Eeuo pipefail
+          susfs_dir="$RUNNER_TEMP/susfs4ksu"
+          patches_dir="$RUNNER_TEMP/kernel-patches"
+          scripts/integrate-susfs.sh \
+            "$KERNEL_DIR" \
+            "$KSU_DIR" \
+            "$susfs_dir" \
+            "$SUSFS_REPOSITORY" \
+            "$SUSFS_REF" \
+            "$SUSFS_PATCH" \
+            "$patches_dir" \
+            "$PATCHES_REPOSITORY" \
+            "$PATCHES_COMMIT" \
+            "$KSU_PATCHSET" \
+            "$GITHUB_WORKSPACE/config/ksunext-susfs.config"
+
+          susfs_commit="$(git -C "$susfs_dir" rev-parse HEAD)"
+          susfs_version="$(awk -F'"' '/^#define SUSFS_VERSION/{print $2; exit}' \
+            "$susfs_dir/kernel_patches/include/linux/susfs.h")"
+          printf 'commit=%s\n' "$susfs_commit" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$susfs_version" >> "$GITHUB_OUTPUT"
+          printf 'patches_commit=%s\n' "$(git -C "$patches_dir" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Bootstrap Android Kleaf workspace
         shell: bash
         env:
@@ -124,7 +184,9 @@ jobs:
             "$RUNNER_TEMP/asteroids-kleaf" \
             "$GITHUB_WORKSPACE/artifacts" \
             "$KLEAF_TARGET" \
-            "$KMI_SYMBOL_LIST"
+            "$KMI_SYMBOL_LIST" \
+            "${{ matrix.variant }}" \
+            "$GITHUB_WORKSPACE/config/ksunext-susfs.config"
 
       - name: Download and verify stock Asteroids boot image
         id: stock_boot
@@ -170,12 +232,18 @@ jobs:
         id: metadata
         shell: bash
         env:
+          BUILD_VARIANT: ${{ matrix.variant }}
           KERNEL_REF: ${{ inputs.kernel_ref }}
           KERNEL_COMMIT: ${{ steps.kernel.outputs.commit }}
           KSU_REF: ${{ inputs.ksun_ref }}
           KSU_COMMIT: ${{ steps.kernelsu.outputs.commit }}
           KSU_TAG: ${{ steps.kernelsu.outputs.tag }}
           KSU_VERSION_CODE: ${{ steps.kernelsu.outputs.version_code }}
+          SUSFS_ENABLED: ${{ matrix.susfs }}
+          SUSFS_REF: ${{ inputs.susfs_ref }}
+          SUSFS_COMMIT: ${{ steps.susfs.outputs.commit }}
+          SUSFS_VERSION: ${{ steps.susfs.outputs.version }}
+          PATCHES_COMMIT_RESOLVED: ${{ steps.susfs.outputs.patches_commit }}
           STOCK_BOOT_SHA256: ${{ steps.stock_boot.outputs.sha256 }}
         run: |
           set -Eeuo pipefail
@@ -194,11 +262,19 @@ jobs:
             --arg kernel_ref "$KERNEL_REF" \
             --arg kernel_commit "$KERNEL_COMMIT" \
             --arg kernel_version "$kernel_version" \
+            --arg build_variant "$BUILD_VARIANT" \
             --arg ksu_repository "$KSU_REPOSITORY" \
             --arg ksu_ref "$KSU_REF" \
             --arg ksu_commit "$KSU_COMMIT" \
             --arg ksu_tag "$KSU_TAG" \
             --arg ksu_version_code "$KSU_VERSION_CODE" \
+            --arg susfs_enabled "$SUSFS_ENABLED" \
+            --arg susfs_repository "$SUSFS_REPOSITORY" \
+            --arg susfs_ref "$SUSFS_REF" \
+            --arg susfs_commit "$SUSFS_COMMIT" \
+            --arg susfs_version "$SUSFS_VERSION" \
+            --arg patches_repository "$PATCHES_REPOSITORY" \
+            --arg patches_commit "$PATCHES_COMMIT_RESOLVED" \
             --arg image_sha256 "$image_sha256" \
             --arg image_gz_sha256 "$image_gz_sha256" \
             --arg stock_release "$STOCK_RELEASE" \
@@ -209,6 +285,7 @@ jobs:
             --arg boot_sha256 "$boot_sha256" \
             '{
               device: $device,
+              variant: $build_variant,
               build_system: "Kleaf/Bazel",
               target: $target,
               kmi_symbol_list: $kmi_symbol_list,
@@ -225,12 +302,24 @@ jobs:
                 tag: $ksu_tag,
                 version_code: ($ksu_version_code | tonumber)
               },
+              susfs: (if $susfs_enabled == "true" then {
+                enabled: true,
+                repository: $susfs_repository,
+                ref: $susfs_ref,
+                commit: $susfs_commit,
+                version: $susfs_version,
+                compatibility_patches: {
+                  repository: $patches_repository,
+                  commit: $patches_commit
+                }
+              } else {enabled: false} end),
               config: {
                 module_sig_protect: false,
                 module_sig_all: true,
                 trim_unused_ksyms: true,
                 ksu: true,
-                ksu_debug: false
+                ksu_debug: false,
+                ksu_susfs: ($susfs_enabled == "true")
               },
               image_sha256: $image_sha256,
               image_gz_sha256: $image_gz_sha256,
@@ -246,11 +335,15 @@ jobs:
             }' > artifacts/build.json
 
           {
-            printf 'Nothing Phone (3a) series — Asteroids GKI\n\n'
+            printf 'Nothing Phone (3a) series — Asteroids GKI (%s)\n\n' "$BUILD_VARIANT"
             printf 'Kernel: %s\n' "$kernel_version"
             printf 'Kleaf target: %s\n' "$KLEAF_TARGET"
             printf 'Kernel commit: %s\n' "$KERNEL_COMMIT"
             printf 'KernelSU Next: %s (%s, version code %s)\n' "$KSU_TAG" "$KSU_COMMIT" "$KSU_VERSION_CODE"
+            if [[ "$SUSFS_ENABLED" == true ]]; then
+              printf 'SUSFS: %s (%s)\n' "$SUSFS_VERSION" "$SUSFS_COMMIT"
+              printf 'SUSFS compatibility patches: %s\n' "$PATCHES_COMMIT_RESOLVED"
+            fi
             printf 'Image SHA256: %s\n' "$image_sha256"
             printf 'Image.gz SHA256: %s\n' "$image_gz_sha256"
             printf 'Stock boot source: Nothing Archive %s\n' "$STOCK_RELEASE"
@@ -264,7 +357,7 @@ jobs:
           printf 'boot_sha256=%s\n' "$boot_sha256" >> "$GITHUB_OUTPUT"
 
           {
-            echo '### Asteroids GKI build'
+            echo "### Asteroids GKI build — $BUILD_VARIANT"
             echo ''
             echo '| Field | Value |'
             echo '|---|---|'
@@ -272,6 +365,11 @@ jobs:
             echo "| Commit | \`$KERNEL_COMMIT\` |"
             echo "| KernelSU Next | \`$KSU_TAG\` / \`$KSU_COMMIT\` |"
             echo "| KernelSU version code | \`$KSU_VERSION_CODE\` |"
+            if [[ "$SUSFS_ENABLED" == true ]]; then
+              echo "| SUSFS | \`$SUSFS_VERSION\` / \`$SUSFS_COMMIT\` |"
+            else
+              echo '| SUSFS | `disabled` |'
+            fi
             echo "| Image.gz SHA256 | \`$image_gz_sha256\` |"
             echo "| boot.img SHA256 | \`$boot_sha256\` |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -279,7 +377,7 @@ jobs:
       - name: Upload Asteroids build
         uses: actions/upload-artifact@v4
         with:
-          name: asteroids-ksunext-${{ github.run_number }}
+          name: ${{ matrix.artifact }}-${{ github.run_number }}
           path: artifacts/
           if-no-files-found: error
           compression-level: 0
@@ -289,25 +387,58 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: asteroids-ksunext-failure-${{ github.run_number }}
+          name: ${{ matrix.artifact }}-failure-${{ github.run_number }}
           path: |
             artifacts/
             ${{ runner.temp }}/asteroids-kleaf/out/bazel/**/command.log
           if-no-files-found: ignore
           retention-days: 7
+  release:
+    name: Publish both Asteroids variants
+    if: ${{ inputs.create_release && success() }}
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download both build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: asteroids-ksunext*-${{ github.run_number }}
+          path: release-assets
+
+      - name: Prepare uniquely named release files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p release-files
+          mapfile -t artifact_dirs < <(find release-assets -mindepth 1 -maxdepth 1 -type d -print | sort)
+          if (( ${#artifact_dirs[@]} != 2 )); then
+            printf 'Expected two successful build artifacts, found %s\n' "${#artifact_dirs[@]}" >&2
+            exit 1
+          fi
+
+          for artifact_dir in "${artifact_dirs[@]}"; do
+            artifact_name="$(basename "$artifact_dir")"
+            prefix="${artifact_name%-${GITHUB_RUN_NUMBER}}"
+            for file in Image Image.gz System.map kernel.config kernel-version.txt boot.img build.json README.txt build.log; do
+              if [[ -f "$artifact_dir/$file" ]]; then
+                install -m 0644 "$artifact_dir/$file" "release-files/$prefix-$file"
+              fi
+            done
+          done
 
       - name: Create GitHub Release
-        if: ${{ inputs.create_release && success() }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          KERNEL_VERSION: ${{ steps.metadata.outputs.kernel_version }}
         run: |
           set -Eeuo pipefail
+          kernel_version="$(<release-assets/asteroids-ksunext-${GITHUB_RUN_NUMBER}/kernel-version.txt)"
           tag="asteroids-ksunext-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           gh release create \
             "$tag" \
-            artifacts/* \
+            release-files/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Asteroids KernelSU Next $KERNEL_VERSION" \
-            --notes "Built with Kleaf from $KERNEL_REPOSITORY at ${{ steps.kernel.outputs.commit }} with KernelSU Next ${{ steps.kernelsu.outputs.tag }} at ${{ steps.kernelsu.outputs.commit }}."
+            --title "Asteroids KernelSU Next + SUSFS $kernel_version" \
+            --notes "Parallel Kleaf builds from $KERNEL_REPOSITORY: clean KernelSU Next and KernelSU Next with SUSFS. Exact source commits and hashes are recorded in the variant build.json files."

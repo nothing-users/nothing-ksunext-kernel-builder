@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (( $# != 4 )); then
-  printf 'Usage: %s WORKSPACE ARTIFACT_DIR KLEAF_TARGET KMI_SYMBOL_LIST\n' "$0" >&2
+if (( $# != 6 )); then
+  printf 'Usage: %s WORKSPACE ARTIFACT_DIR KLEAF_TARGET KMI_SYMBOL_LIST BUILD_VARIANT SUSFS_CONFIG\n' "$0" >&2
   exit 2
 fi
 
@@ -10,6 +10,8 @@ workspace="$1"
 artifact_dir="$2"
 kleaf_target="$3"
 kmi_symbol_list="$4"
+build_variant="$5"
+susfs_config="$6"
 output_dir="$workspace/bazel-bin/common/kernel_aarch64"
 config="$workspace/bazel-bin/common/kernel_aarch64_config/out_dir/.config"
 build_log="$artifact_dir/build.log"
@@ -45,6 +47,37 @@ grep -Eq '[[:space:]](kernelsu_init|kernelsu_init_early)$' "$output_dir/System.m
   printf 'KernelSU Next init symbol is missing from System.map\n' >&2
   exit 1
 }
+
+case "$build_variant" in
+  ksunext)
+    if grep -qx 'CONFIG_KSU_SUSFS=y' "$config"; then
+      printf 'The clean KernelSU Next variant unexpectedly enabled SUSFS\n' >&2
+      exit 1
+    fi
+    ;;
+  ksunext-susfs)
+    [[ -f "$susfs_config" ]] || {
+      printf 'Missing SUSFS config fragment: %s\n' "$susfs_config" >&2
+      exit 2
+    }
+    while IFS='=' read -r option value; do
+      [[ -z "$option" || "$option" == \#* ]] && continue
+      if [[ "$value" == n ]]; then
+        expected="# $option is not set"
+      else
+        expected="$option=$value"
+      fi
+      grep -qxF "$expected" "$config" || {
+        printf 'Required SUSFS config was not enabled: %s\n' "$expected" >&2
+        exit 1
+      }
+    done < "$susfs_config"
+    ;;
+  *)
+    printf 'Unsupported build variant: %s\n' "$build_variant" >&2
+    exit 2
+    ;;
+esac
 
 install -m 0644 "$output_dir/Image" "$artifact_dir/Image"
 install -m 0644 "$output_dir/Image.gz" "$artifact_dir/Image.gz"

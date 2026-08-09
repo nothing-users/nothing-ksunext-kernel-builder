@@ -2,9 +2,9 @@
 
 ---
 
-# Nothing Phone (3a) Asteroids KernelSU Next Builder
+# Nothing Phone (3a) Asteroids KernelSU Next + SUSFS Builder
 
-Воспроизводимая сборка загрузочного ядра с чистым KernelSU Next для Nothing Phone (3a) и Phone (3a) Pro (`Asteroids`) через Android Kleaf/Bazel. SUSFS и сторонние kernel-патчи не применяются.
+Воспроизводимая параллельная сборка двух вариантов загрузочного ядра для Nothing Phone (3a) и Phone (3a) Pro (`Asteroids`) через Android Kleaf/Bazel: чистый KernelSU Next и KernelSU Next с SUSFS.
 
 Это не сборка Qualcomm `pineapple_gki`. В `boot.img` помещается базовый GKI из цели `//common:kernel_aarch64`, совместимый со стоковыми vendor-модулями Nothing OS.
 
@@ -12,20 +12,20 @@
 
 1. Клонирует форк [`nothing-users/android_kernel_msm-6.1_nothing_sm7635`](https://github.com/nothing-users/android_kernel_msm-6.1_nothing_sm7635) и ветку `sm7635/b/mr_Frogger`.
 2. Загружает Android kernel manifest `common-android14-6.1-2023-06` и необходимые зависимости Kleaf.
-3. Загружает выбранный `ksun_ref` из официального репозитория KernelSU Next и подключает драйвер; итоговая конфигурация проверяется на `CONFIG_KSU=y` и выключенный debug-режим.
-4. Подключает исходники одновременно как `common` и `msm-kernel`, как в проверенной локальной сборке.
-5. Собирает `//common:kernel_aarch64` с KMI-списком Qualcomm.
-6. Проверяет обязательные параметры конфигурации, символ инициализации KernelSU Next и наличие `Image`, `Image.gz` и `System.map`.
+3. В двух независимых matrix-job загружает выбранный `ksun_ref` из официального репозитория KernelSU Next и подключает драйвер.
+4. Для варианта `ksunext-susfs` дополнительно применяет SUSFS и compatibility fixes из тех же зафиксированных источников, что используются в ветке `dev`; обычный вариант `ksunext` остаётся без SUSFS.
+5. Подключает исходники одновременно как `common` и `msm-kernel`, как в проверенной локальной сборке.
+6. Параллельно собирает оба варианта `//common:kernel_aarch64` с KMI-списком Qualcomm и проверяет их итоговые конфигурации, символ KernelSU Next и обязательные файлы.
 7. Загружает зафиксированный boot archive `Asteroids_B4.1-260618-1048` из Nothing Archive, проверяет SHA-256 архива и извлечённого `boot.img`, заменяет только kernel на новый `Image.gz`, восстанавливает размер раздела и повторно проверяет содержимое образа.
-8. Публикует готовый `boot.img`, ядро, конфигурацию, карту символов, лог, версии и SHA-256.
+8. Публикует для каждого варианта готовый `boot.img`, ядро, конфигурацию, карту символов, лог, версии и SHA-256.
 
 ## Запуск
 
-Откройте **Actions → Build Asteroids GKI with KernelSU Next → Run workflow**.
+Откройте **Actions → Build Asteroids GKI with KernelSU Next and SUSFS → Run workflow**.
 
-Обычно достаточно оставить `kernel_ref` равным `sm7635/b/mr_Frogger`, а `ksun_ref` — `dev`. Оба поля принимают branch, tag или commit; artifact записывает фактически использованные commit KernelSU Next и ядра.
+Обычно достаточно оставить `kernel_ref` равным `sm7635/b/mr_Frogger`, `ksun_ref` и `ksun_patchset` — `dev`, а `susfs_ref` — `gki-android14-6.1`. Поля ref принимают branch, tag или commit; artifacts записывают фактически использованные commit ядра, KernelSU Next, SUSFS и compatibility patches.
 
-Результат появится в artifact `asteroids-ksunext-<run number>`. Опция `create_release` дополнительно создаёт GitHub Release.
+Результаты появятся в artifacts `asteroids-ksunext-<run number>` и `asteroids-ksunext-susfs-<run number>`. Опция `create_release` создаёт один GitHub Release с файлами обоих вариантов и уникальными префиксами.
 
 ## Проверка без прошивки
 
