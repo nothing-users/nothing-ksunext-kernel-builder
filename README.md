@@ -2,9 +2,9 @@
 
 ---
 
-# Nothing Phone (3a) Asteroids GKI Builder
+# Nothing Phone (3a) Asteroids KernelSU Next Builder
 
-Воспроизводимая сборка загрузочного ядра для Nothing Phone (3a) и Phone (3a) Pro (`Asteroids`) через Android Kleaf/Bazel.
+Воспроизводимая сборка загрузочного ядра с чистым KernelSU Next для Nothing Phone (3a) и Phone (3a) Pro (`Asteroids`) через Android Kleaf/Bazel. SUSFS и сторонние kernel-патчи не применяются.
 
 Это не сборка Qualcomm `pineapple_gki`. В `boot.img` помещается базовый GKI из цели `//common:kernel_aarch64`, совместимый со стоковыми vendor-модулями Nothing OS.
 
@@ -12,19 +12,20 @@
 
 1. Клонирует форк [`nothing-users/android_kernel_msm-6.1_nothing_sm7635`](https://github.com/nothing-users/android_kernel_msm-6.1_nothing_sm7635) и ветку `sm7635/b/mr_Frogger`.
 2. Загружает Android kernel manifest `common-android14-6.1-2023-06` и необходимые зависимости Kleaf.
-3. Подключает исходники одновременно как `common` и `msm-kernel`, как в проверенной локальной сборке.
-4. Собирает `//common:kernel_aarch64` с KMI-списком Qualcomm.
-5. Проверяет обязательные параметры конфигурации и наличие `Image`, `Image.gz` и `System.map`.
-6. Загружает зафиксированный boot archive `Asteroids_B4.1-260618-1048` из Nothing Archive, проверяет SHA-256 архива и извлечённого `boot.img`, заменяет только kernel на новый `Image.gz`, восстанавливает размер раздела и повторно проверяет содержимое образа.
-7. Публикует готовый `boot.img`, ядро, конфигурацию, карту символов, лог и SHA-256.
+3. Загружает выбранный `ksun_ref` из официального репозитория KernelSU Next и подключает драйвер; итоговая конфигурация проверяется на `CONFIG_KSU=y` и выключенный debug-режим.
+4. Подключает исходники одновременно как `common` и `msm-kernel`, как в проверенной локальной сборке.
+5. Собирает `//common:kernel_aarch64` с KMI-списком Qualcomm.
+6. Проверяет обязательные параметры конфигурации, символ инициализации KernelSU Next и наличие `Image`, `Image.gz` и `System.map`.
+7. Загружает зафиксированный boot archive `Asteroids_B4.1-260618-1048` из Nothing Archive, проверяет SHA-256 архива и извлечённого `boot.img`, заменяет только kernel на новый `Image.gz`, восстанавливает размер раздела и повторно проверяет содержимое образа.
+8. Публикует готовый `boot.img`, ядро, конфигурацию, карту символов, лог, версии и SHA-256.
 
 ## Запуск
 
-Откройте **Actions → Build Asteroids GKI → Run workflow**.
+Откройте **Actions → Build Asteroids GKI with KernelSU Next → Run workflow**.
 
-Обычно достаточно оставить `kernel_ref` равным `sm7635/b/mr_Frogger`. Можно указать другой branch, tag или commit этого же форка, если он содержит поддержку Asteroids Kleaf.
+Обычно достаточно оставить `kernel_ref` равным `sm7635/b/mr_Frogger`, а `ksun_ref` — `dev`. Оба поля принимают branch, tag или commit; artifact записывает фактически использованные commit KernelSU Next и ядра.
 
-Результат появится в artifact `asteroids-gki-<run number>`. Опция `create_release` дополнительно создаёт GitHub Release.
+Результат появится в artifact `asteroids-ksunext-<run number>`. Опция `create_release` дополнительно создаёт GitHub Release.
 
 ## Проверка без прошивки
 

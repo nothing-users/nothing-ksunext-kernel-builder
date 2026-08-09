@@ -1,4 +1,4 @@
-name: Build Asteroids GKI
+name: Build Asteroids GKI with KernelSU Next
 
 on:
   workflow_dispatch:
@@ -7,6 +7,11 @@ on:
         description: Kernel fork branch, tag, or commit
         required: true
         default: sm7635/b/mr_Frogger
+        type: string
+      ksun_ref:
+        description: KernelSU Next branch, tag, or commit
+        required: true
+        default: dev
         type: string
       create_release:
         description: Publish the resulting files as a GitHub Release
@@ -23,6 +28,7 @@ concurrency:
 
 env:
   KERNEL_REPOSITORY: https://github.com/nothing-users/android_kernel_msm-6.1_nothing_sm7635.git
+  KSU_REPOSITORY: https://github.com/KernelSU-Next/KernelSU-Next.git
   ANDROID_MANIFEST_URL: https://android.googlesource.com/kernel/manifest
   ANDROID_MANIFEST_BRANCH: common-android14-6.1-2023-06
   KLEAF_TARGET: //common:kernel_aarch64
@@ -34,7 +40,7 @@ env:
 
 jobs:
   build:
-    name: Asteroids GKI
+    name: Asteroids GKI + KernelSU Next
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -76,6 +82,28 @@ jobs:
           printf 'dir=%s\n' "$kernel_dir" >> "$GITHUB_OUTPUT"
           printf 'commit=%s\n' "$kernel_commit" >> "$GITHUB_OUTPUT"
           printf 'Kernel commit: %s\n' "$kernel_commit"
+
+      - name: Integrate KernelSU Next
+        id: kernelsu
+        shell: bash
+        env:
+          KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
+          KSU_REF: ${{ inputs.ksun_ref }}
+        run: |
+          set -Eeuo pipefail
+          ksu_dir="$RUNNER_TEMP/KernelSU-Next"
+          scripts/integrate-kernelsu-next.sh \
+            "$KERNEL_DIR" \
+            "$ksu_dir" \
+            "$KSU_REPOSITORY" \
+            "$KSU_REF"
+
+          ksu_commit="$(git -C "$ksu_dir" rev-parse HEAD)"
+          ksu_tag="$(git -C "$ksu_dir" describe --tags --abbrev=0 HEAD 2>/dev/null || printf unknown)"
+          ksu_version_code="$((30000 + $(git -C "$ksu_dir" rev-list --count HEAD)))"
+          printf 'commit=%s\n' "$ksu_commit" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$ksu_tag" >> "$GITHUB_OUTPUT"
+          printf 'version_code=%s\n' "$ksu_version_code" >> "$GITHUB_OUTPUT"
 
       - name: Bootstrap Android Kleaf workspace
         shell: bash
@@ -144,6 +172,10 @@ jobs:
         env:
           KERNEL_REF: ${{ inputs.kernel_ref }}
           KERNEL_COMMIT: ${{ steps.kernel.outputs.commit }}
+          KSU_REF: ${{ inputs.ksun_ref }}
+          KSU_COMMIT: ${{ steps.kernelsu.outputs.commit }}
+          KSU_TAG: ${{ steps.kernelsu.outputs.tag }}
+          KSU_VERSION_CODE: ${{ steps.kernelsu.outputs.version_code }}
           STOCK_BOOT_SHA256: ${{ steps.stock_boot.outputs.sha256 }}
         run: |
           set -Eeuo pipefail
@@ -162,6 +194,11 @@ jobs:
             --arg kernel_ref "$KERNEL_REF" \
             --arg kernel_commit "$KERNEL_COMMIT" \
             --arg kernel_version "$kernel_version" \
+            --arg ksu_repository "$KSU_REPOSITORY" \
+            --arg ksu_ref "$KSU_REF" \
+            --arg ksu_commit "$KSU_COMMIT" \
+            --arg ksu_tag "$KSU_TAG" \
+            --arg ksu_version_code "$KSU_VERSION_CODE" \
             --arg image_sha256 "$image_sha256" \
             --arg image_gz_sha256 "$image_gz_sha256" \
             --arg stock_release "$STOCK_RELEASE" \
@@ -181,10 +218,19 @@ jobs:
                 commit: $kernel_commit,
                 version: $kernel_version
               },
+              kernelsu_next: {
+                repository: $ksu_repository,
+                ref: $ksu_ref,
+                commit: $ksu_commit,
+                tag: $ksu_tag,
+                version_code: ($ksu_version_code | tonumber)
+              },
               config: {
                 module_sig_protect: false,
                 module_sig_all: true,
-                trim_unused_ksyms: true
+                trim_unused_ksyms: true,
+                ksu: true,
+                ksu_debug: false
               },
               image_sha256: $image_sha256,
               image_gz_sha256: $image_gz_sha256,
@@ -204,6 +250,7 @@ jobs:
             printf 'Kernel: %s\n' "$kernel_version"
             printf 'Kleaf target: %s\n' "$KLEAF_TARGET"
             printf 'Kernel commit: %s\n' "$KERNEL_COMMIT"
+            printf 'KernelSU Next: %s (%s, version code %s)\n' "$KSU_TAG" "$KSU_COMMIT" "$KSU_VERSION_CODE"
             printf 'Image SHA256: %s\n' "$image_sha256"
             printf 'Image.gz SHA256: %s\n' "$image_gz_sha256"
             printf 'Stock boot source: Nothing Archive %s\n' "$STOCK_RELEASE"
@@ -223,6 +270,8 @@ jobs:
             echo '|---|---|'
             echo "| Kernel | \`$kernel_version\` |"
             echo "| Commit | \`$KERNEL_COMMIT\` |"
+            echo "| KernelSU Next | \`$KSU_TAG\` / \`$KSU_COMMIT\` |"
+            echo "| KernelSU version code | \`$KSU_VERSION_CODE\` |"
             echo "| Image.gz SHA256 | \`$image_gz_sha256\` |"
             echo "| boot.img SHA256 | \`$boot_sha256\` |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -230,7 +279,7 @@ jobs:
       - name: Upload Asteroids build
         uses: actions/upload-artifact@v4
         with:
-          name: asteroids-gki-${{ github.run_number }}
+          name: asteroids-ksunext-${{ github.run_number }}
           path: artifacts/
           if-no-files-found: error
           compression-level: 0
@@ -240,7 +289,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: asteroids-gki-failure-${{ github.run_number }}
+          name: asteroids-ksunext-failure-${{ github.run_number }}
           path: |
             artifacts/
             ${{ runner.temp }}/asteroids-kleaf/out/bazel/**/command.log
@@ -255,10 +304,10 @@ jobs:
           KERNEL_VERSION: ${{ steps.metadata.outputs.kernel_version }}
         run: |
           set -Eeuo pipefail
-          tag="asteroids-gki-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          tag="asteroids-ksunext-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           gh release create \
             "$tag" \
             artifacts/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Asteroids GKI $KERNEL_VERSION" \
-            --notes "Built with Kleaf from $KERNEL_REPOSITORY at ${{ steps.kernel.outputs.commit }}."
+            --title "Asteroids KernelSU Next $KERNEL_VERSION" \
+            --notes "Built with Kleaf from $KERNEL_REPOSITORY at ${{ steps.kernel.outputs.commit }} with KernelSU Next ${{ steps.kernelsu.outputs.tag }} at ${{ steps.kernelsu.outputs.commit }}."

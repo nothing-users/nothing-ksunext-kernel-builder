@@ -39,6 +39,12 @@ done
 grep -qx '# CONFIG_MODULE_SIG_PROTECT is not set' "$config"
 grep -qx 'CONFIG_MODULE_SIG_ALL=y' "$config"
 grep -qx 'CONFIG_TRIM_UNUSED_KSYMS=y' "$config"
+grep -qx 'CONFIG_KSU=y' "$config"
+grep -qx '# CONFIG_KSU_DEBUG is not set' "$config"
+grep -Eq '[[:space:]](kernelsu_init|kernelsu_init_early)$' "$output_dir/System.map" || {
+  printf 'KernelSU Next init symbol is missing from System.map\n' >&2
+  exit 1
+}
 
 install -m 0644 "$output_dir/Image" "$artifact_dir/Image"
 install -m 0644 "$output_dir/Image.gz" "$artifact_dir/Image.gz"
