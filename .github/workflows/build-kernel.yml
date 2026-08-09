@@ -29,7 +29,7 @@ env:
   KMI_SYMBOL_LIST: //msm-kernel:android/abi_gki_aarch64_qcom
   STOCK_BOOT_ARCHIVE_URL: https://github.com/spike0en/nothing_archive/releases/download/Asteroids_B4.1-260618-1048/Asteroids_B4.1-260618-1048-image-boot.7z
   STOCK_BOOT_ARCHIVE_SHA256: c5aa47b2ef03efc33a8c765b3a3a74f62203d594d43a59816a1538b65117ffe4
-  STOCK_BOOT_SHA256: 68b12e1148598a187bb73711a675f615c2bf5236929ecca27e701459a6bd4a1f
+  STOCK_BOOT_HASH_MANIFEST_URL: https://github.com/spike0en/nothing_archive/releases/download/Asteroids_B4.1-260618-1048/Asteroids_B4.1-260618-1048-hash.sha256
   STOCK_RELEASE: Asteroids_B4.1-260618-1048
 
 jobs:
@@ -99,19 +99,35 @@ jobs:
             "$KMI_SYMBOL_LIST"
 
       - name: Download and verify stock Asteroids boot image
+        id: stock_boot
         shell: bash
         run: |
           set -Eeuo pipefail
           archive="$RUNNER_TEMP/$STOCK_RELEASE-image-boot.7z"
+          hash_manifest="$RUNNER_TEMP/$STOCK_RELEASE-hash.sha256"
           extract_dir="$RUNNER_TEMP/$STOCK_RELEASE-boot"
 
+          curl --fail --location --retry 3 --output "$hash_manifest" "$STOCK_BOOT_HASH_MANIFEST_URL"
           curl --fail --location --retry 3 --output "$archive" "$STOCK_BOOT_ARCHIVE_URL"
           printf '%s  %s\n' "$STOCK_BOOT_ARCHIVE_SHA256" "$archive" | sha256sum --check --strict
+
+          mapfile -t stock_boot_hashes < <(awk '$2 == "*./boot.img" { print $1 }' "$hash_manifest")
+          if (( ${#stock_boot_hashes[@]} != 1 )); then
+            printf 'Expected exactly one ./boot.img entry in %s, found %s\n' \
+              "$hash_manifest" "${#stock_boot_hashes[@]}" >&2
+            exit 1
+          fi
+          stock_boot_sha256="${stock_boot_hashes[0],,}"
+          [[ "$stock_boot_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+            printf 'Invalid boot.img SHA-256 in %s: %s\n' "$hash_manifest" "$stock_boot_sha256" >&2
+            exit 1
+          }
 
           mkdir -p "$extract_dir"
           7z e -y "-o$extract_dir" "$archive" boot.img
           install -m 0644 "$extract_dir/boot.img" "$RUNNER_TEMP/stock-boot.img"
-          printf '%s  %s\n' "$STOCK_BOOT_SHA256" "$RUNNER_TEMP/stock-boot.img" | sha256sum --check --strict
+          printf '%s  %s\n' "$stock_boot_sha256" "$RUNNER_TEMP/stock-boot.img" | sha256sum --check --strict
+          printf 'sha256=%s\n' "$stock_boot_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Repack verified Asteroids boot image
         shell: bash
@@ -128,6 +144,7 @@ jobs:
         env:
           KERNEL_REF: ${{ inputs.kernel_ref }}
           KERNEL_COMMIT: ${{ steps.kernel.outputs.commit }}
+          STOCK_BOOT_SHA256: ${{ steps.stock_boot.outputs.sha256 }}
         run: |
           set -Eeuo pipefail
 
@@ -150,6 +167,7 @@ jobs:
             --arg stock_release "$STOCK_RELEASE" \
             --arg stock_archive_url "$STOCK_BOOT_ARCHIVE_URL" \
             --arg stock_archive_sha256 "$STOCK_BOOT_ARCHIVE_SHA256" \
+            --arg stock_hash_manifest_url "$STOCK_BOOT_HASH_MANIFEST_URL" \
             --arg base_boot_sha256 "$base_boot_sha256" \
             --arg boot_sha256 "$boot_sha256" \
             '{
@@ -174,7 +192,8 @@ jobs:
                 project: "spike0en/nothing_archive",
                 release: $stock_release,
                 archive_url: $stock_archive_url,
-                archive_sha256: $stock_archive_sha256
+                archive_sha256: $stock_archive_sha256,
+                hash_manifest_url: $stock_hash_manifest_url
               },
               base_boot_sha256: $base_boot_sha256,
               boot_sha256: $boot_sha256

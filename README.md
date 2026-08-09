@@ -38,6 +38,6 @@ fastboot boot boot.img
 
 ## Источник стокового образа
 
-Стоковый образ берётся из релиза [`Asteroids_B4.1-260618-1048`](https://github.com/spike0en/nothing_archive/releases/tag/Asteroids_B4.1-260618-1048) проекта [Nothing Archive](https://github.com/spike0en/nothing_archive). В workflow зафиксированы точный URL, SHA-256 архива и SHA-256 `boot.img`. Этот boot image побайтно совпадает с образом, на котором была проверена локальная сборка.
+Стоковый образ берётся из релиза [`Asteroids_B4.1-260618-1048`](https://github.com/spike0en/nothing_archive/releases/tag/Asteroids_B4.1-260618-1048) проекта [Nothing Archive](https://github.com/spike0en/nothing_archive). В workflow зафиксированы точные URL релиза и SHA-256 архива, а ожидаемый SHA-256 `boot.img` извлекается из опубликованного в том же релизе файла `Asteroids_B4.1-260618-1048-hash.sha256`. Этот boot image побайтно совпадает с образом, на котором была проверена локальная сборка.
 
 Nothing Archive используется с указанием авторства. OEM firmware принадлежит Nothing Technology Limited и загружается только во время сборки; binary firmware не хранится в этом репозитории. Workflow прекращает работу при несовпадении контрольной суммы или структуры boot image.
