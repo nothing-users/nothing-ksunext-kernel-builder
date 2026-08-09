@@ -17,7 +17,7 @@
 5. Подключает исходники одновременно как `common` и `msm-kernel`, как в проверенной локальной сборке.
 6. Параллельно собирает оба варианта `//common:kernel_aarch64` с KMI-списком Qualcomm и проверяет их итоговые конфигурации, символ KernelSU Next и обязательные файлы.
 7. Загружает зафиксированный boot archive `Asteroids_B4.1-260618-1048` из Nothing Archive, проверяет SHA-256 архива и извлечённого `boot.img`, заменяет только kernel на новый `Image.gz`, восстанавливает размер раздела и повторно проверяет содержимое образа.
-8. Публикует для каждого варианта готовый `boot.img`, ядро, конфигурацию, карту символов, лог, версии и SHA-256.
+8. Собирает flashable ZIP на базе зафиксированного [`nothing-users/AnyKernel3-Nothing`](https://github.com/nothing-users/AnyKernel3-Nothing) и публикует три компактных artifacts: два `boot.img`, два AnyKernel3 ZIP и логи обоих вариантов с метаданными и SHA-256.
 
 ## Запуск
 
@@ -25,7 +25,7 @@
 
 Обычно достаточно оставить `kernel_ref` равным `sm7635/b/mr_Frogger`, `ksun_ref` и `ksun_patchset` — `dev`, а `susfs_ref` — `gki-android14-6.1`. Поля ref принимают branch, tag или commit; artifacts записывают фактически использованные commit ядра, KernelSU Next, SUSFS и compatibility patches.
 
-Результаты появятся в artifacts `asteroids-ksunext-<run number>` и `asteroids-ksunext-susfs-<run number>`. Опция `create_release` создаёт один GitHub Release с файлами обоих вариантов и уникальными префиксами.
+Результаты появятся в artifacts `asteroids-boot-images-<run>-<attempt>`, `asteroids-anykernel3-<run>-<attempt>` и `asteroids-build-logs-<run>-<attempt>`. Опция `create_release` создаёт один GitHub Release с двумя именованными `boot.img`, двумя AnyKernel3 ZIP и одним архивом логов.
 
 ## Проверка без прошивки
 

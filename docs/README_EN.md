@@ -17,11 +17,11 @@ This does not put Qualcomm's `pineapple_gki` output into the boot image. It buil
 5. Expose each source tree as both `common` and `msm-kernel`, matching the verified local workspace.
 6. Build both `//common:kernel_aarch64` variants in parallel with Qualcomm's KMI symbol list, validating their final configs, KernelSU Next init symbol, and required outputs.
 7. Download the pinned `Asteroids_B4.1-260618-1048` boot archive from Nothing Archive, verify both the archive and extracted boot-image SHA-256, replace only the kernel, preserve the partition size, and unpack the result to verify the embedded `Image.gz` byte for byte.
-8. Upload `boot.img`, `Image`, `Image.gz`, the config, `System.map`, the build log, resolved versions, metadata, and SHA-256 hashes for both variants.
+8. Build flashable ZIP files from the pinned [`nothing-users/AnyKernel3-Nothing`](https://github.com/nothing-users/AnyKernel3-Nothing) template and publish three compact artifacts: two boot images, two AnyKernel3 packages, and logs for both variants with metadata and SHA-256 hashes.
 
 ## Running a build
 
-Open **Actions → Build Asteroids GKI with KernelSU Next and SUSFS → Run workflow**. Normally, leave `kernel_ref` at `sm7635/b/mr_Frogger`, `ksun_ref` and `ksun_patchset` at `dev`, and `susfs_ref` at `gki-android14-6.1`. Ref inputs accept a branch, tag, or commit, and the artifacts record the resolved commits. Results are named `asteroids-ksunext-<run number>` and `asteroids-ksunext-susfs-<run number>`. Enabling `create_release` creates one release containing uniquely prefixed files from both variants.
+Open **Actions → Build Asteroids GKI with KernelSU Next and SUSFS → Run workflow**. Normally, leave `kernel_ref` at `sm7635/b/mr_Frogger`, `ksun_ref` and `ksun_patchset` at `dev`, and `susfs_ref` at `gki-android14-6.1`. Ref inputs accept a branch, tag, or commit, and the artifacts record the resolved commits. Results are named `asteroids-boot-images-<run>-<attempt>`, `asteroids-anykernel3-<run>-<attempt>`, and `asteroids-build-logs-<run>-<attempt>`. Enabling `create_release` creates one release containing two named boot images, two AnyKernel3 ZIP files, and one logs archive.
 
 Test with `fastboot boot boot.img` before flashing. Keep a copy of the original image and verify audio, cameras, Wi-Fi, Bluetooth, cellular connectivity, charging, fingerprint, and suspend/resume.
 

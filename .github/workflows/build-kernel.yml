@@ -46,6 +46,8 @@ env:
   SUSFS_PATCH: kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
   PATCHES_REPOSITORY: https://github.com/WildKernels/kernel_patches.git
   PATCHES_COMMIT: 24865a0bc50dfb65b04153cc9ad2879a9c26cc7e
+  AK3_REPOSITORY: https://github.com/nothing-users/AnyKernel3-Nothing.git
+  AK3_COMMIT: 49abcec132317e40322c9094e25e76daabe0351a
   MAGISKBOOT_URL: https://raw.githubusercontent.com/Uevo001/magiskboot-linux/b8323c4f2f24c2a552c84b4b437dc40b50fe8485/x86_64/magiskboot
   MAGISKBOOT_SHA256: 6de21d6ddd6b633aeb40465ffaae027bbef091e72b7aec22bdba6d4ae50416fe
   ANDROID_MANIFEST_URL: https://android.googlesource.com/kernel/manifest
@@ -69,10 +71,12 @@ jobs:
           - variant: ksunext
             label: KernelSU Next
             artifact: asteroids-ksunext
+            package: KSUNext
             susfs: false
           - variant: ksunext-susfs
             label: KernelSU Next + SUSFS
             artifact: asteroids-ksunext-susfs
+            package: KSUNext-SUSFS
             susfs: true
 
     steps:
@@ -267,6 +271,34 @@ jobs:
             "$magiskboot" \
             "$GITHUB_WORKSPACE/artifacts/boot.img"
 
+      - name: Prepare boot image and AnyKernel3 packages
+        id: packages
+        shell: bash
+        env:
+          PACKAGE_TAG: ${{ matrix.package }}
+          KERNEL_STRING: Nothing Asteroids ${{ matrix.label }}
+        run: |
+          set -Eeuo pipefail
+          kernel_version="$(<artifacts/kernel-version.txt)"
+          package_base="Nothing-Asteroids-$PACKAGE_TAG-$kernel_version"
+          boot_name="$package_base-boot.img"
+          ak3_name="$package_base-AnyKernel3.zip"
+
+          mkdir -p publish/boot publish/anykernel3
+          install -m 0644 artifacts/boot.img "publish/boot/$boot_name"
+          scripts/package-anykernel3.sh \
+            "$GITHUB_WORKSPACE/artifacts/Image" \
+            "$GITHUB_WORKSPACE/publish/anykernel3/$ak3_name" \
+            "$AK3_REPOSITORY" \
+            "$AK3_COMMIT" \
+            "$KERNEL_STRING"
+
+          printf 'boot_name=%s\n' "$boot_name" >> "$GITHUB_OUTPUT"
+          printf 'ak3_name=%s\n' "$ak3_name" >> "$GITHUB_OUTPUT"
+          printf 'ak3_sha256=%s\n' \
+            "$(sha256sum "publish/anykernel3/$ak3_name" | awk '{print $1}')" \
+            >> "$GITHUB_OUTPUT"
+
       - name: Write build metadata
         id: metadata
         shell: bash
@@ -284,6 +316,9 @@ jobs:
           SUSFS_VERSION: ${{ steps.susfs.outputs.version }}
           PATCHES_COMMIT_RESOLVED: ${{ steps.susfs.outputs.patches_commit }}
           STOCK_BOOT_SHA256: ${{ steps.stock_boot.outputs.sha256 }}
+          BOOT_NAME: ${{ steps.packages.outputs.boot_name }}
+          AK3_NAME: ${{ steps.packages.outputs.ak3_name }}
+          AK3_SHA256: ${{ steps.packages.outputs.ak3_sha256 }}
         run: |
           set -Eeuo pipefail
 
@@ -322,6 +357,11 @@ jobs:
             --arg stock_hash_manifest_url "$STOCK_BOOT_HASH_MANIFEST_URL" \
             --arg base_boot_sha256 "$base_boot_sha256" \
             --arg boot_sha256 "$boot_sha256" \
+            --arg boot_name "$BOOT_NAME" \
+            --arg ak3_repository "$AK3_REPOSITORY" \
+            --arg ak3_commit "$AK3_COMMIT" \
+            --arg ak3_name "$AK3_NAME" \
+            --arg ak3_sha256 "$AK3_SHA256" \
             '{
               device: $device,
               variant: $build_variant,
@@ -370,7 +410,16 @@ jobs:
                 hash_manifest_url: $stock_hash_manifest_url
               },
               base_boot_sha256: $base_boot_sha256,
-              boot_sha256: $boot_sha256
+              boot: {
+                file: $boot_name,
+                sha256: $boot_sha256
+              },
+              anykernel3: {
+                repository: $ak3_repository,
+                commit: $ak3_commit,
+                file: $ak3_name,
+                sha256: $ak3_sha256
+              }
             }' > artifacts/build.json
 
           {
@@ -388,6 +437,8 @@ jobs:
             printf 'Stock boot source: Nothing Archive %s\n' "$STOCK_RELEASE"
             printf 'Stock boot.img SHA256: %s\n' "$base_boot_sha256"
             printf 'Repacked boot.img SHA256: %s\n' "$boot_sha256"
+            printf 'AnyKernel3: %s\n' "$AK3_NAME"
+            printf 'AnyKernel3 SHA256: %s\n' "$AK3_SHA256"
             printf '\nboot.img was rebuilt from the downloaded, SHA-256-verified stock image.\n'
           } > artifacts/README.txt
 
@@ -411,61 +462,151 @@ jobs:
             fi
             echo "| Image.gz SHA256 | \`$image_gz_sha256\` |"
             echo "| boot.img SHA256 | \`$boot_sha256\` |"
+            echo "| AnyKernel3 | \`$AK3_NAME\` |"
+            echo "| AnyKernel3 SHA256 | \`$AK3_SHA256\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload Asteroids build
+      - name: Collect publication logs
+        shell: bash
+        env:
+          BUILD_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -Eeuo pipefail
+          log_dir="publish/logs/$BUILD_VARIANT"
+          mkdir -p "$log_dir/bazel"
+          for file in build.log build.json README.txt kernel.config kernel-version.txt kernel-version-string.txt; do
+            [[ -f "artifacts/$file" ]] && install -m 0644 "artifacts/$file" "$log_dir/$file"
+          done
+
+          index=0
+          while IFS= read -r command_log; do
+            index=$((index + 1))
+            install -m 0644 "$command_log" "$log_dir/bazel/command-$index.log"
+          done < <(find "$RUNNER_TEMP/asteroids-kleaf/out/bazel" -type f -name command.log -print 2>/dev/null | sort)
+
+      - name: Stage boot image
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-${{ github.run_number }}
-          path: artifacts/
+          name: staging-boot-${{ matrix.variant }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: publish/boot/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: 1
+
+      - name: Stage AnyKernel3 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-anykernel3-${{ matrix.variant }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: publish/anykernel3/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Stage build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-logs-${{ matrix.variant }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: publish/logs/
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
 
       - name: Upload diagnostics after failure
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-failure-${{ github.run_number }}
+          name: ${{ matrix.artifact }}-failure-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             artifacts/
             ${{ runner.temp }}/asteroids-kleaf/out/bazel/**/command.log
           if-no-files-found: ignore
           retention-days: 7
-  release:
-    name: Publish both Asteroids variants
-    if: ${{ inputs.create_release && success() }}
+
+  publish:
+    name: Publish curated Asteroids artifacts
     needs: build
     runs-on: ubuntu-24.04
     permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Publish both boot images
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: asteroids-boot-images-${{ github.run_number }}-${{ github.run_attempt }}
+          pattern: staging-boot-*-${{ github.run_number }}-${{ github.run_attempt }}
+          delete-merged: true
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish both AnyKernel3 packages
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: asteroids-anykernel3-${{ github.run_number }}-${{ github.run_attempt }}
+          pattern: staging-anykernel3-*-${{ github.run_number }}-${{ github.run_attempt }}
+          delete-merged: true
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish build logs
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: asteroids-build-logs-${{ github.run_number }}-${{ github.run_attempt }}
+          pattern: staging-logs-*-${{ github.run_number }}-${{ github.run_attempt }}
+          delete-merged: true
+          compression-level: 6
+          retention-days: 14
+
+  release:
+    name: Publish both Asteroids variants
+    if: ${{ inputs.create_release && success() }}
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
       contents: write
     steps:
-      - name: Download both build artifacts
+      - name: Download both boot images
         uses: actions/download-artifact@v4
         with:
-          pattern: asteroids-ksunext*-${{ github.run_number }}
-          path: release-assets
+          name: asteroids-boot-images-${{ github.run_number }}-${{ github.run_attempt }}
+          path: release-files
 
-      - name: Prepare uniquely named release files
+      - name: Download both AnyKernel3 packages
+        uses: actions/download-artifact@v4
+        with:
+          name: asteroids-anykernel3-${{ github.run_number }}-${{ github.run_attempt }}
+          path: release-files
+
+      - name: Download build logs
+        uses: actions/download-artifact@v4
+        with:
+          name: asteroids-build-logs-${{ github.run_number }}-${{ github.run_attempt }}
+          path: release-logs
+
+      - name: Prepare release files
         shell: bash
         run: |
           set -Eeuo pipefail
-          mkdir -p release-files
-          mapfile -t artifact_dirs < <(find release-assets -mindepth 1 -maxdepth 1 -type d -print | sort)
-          if (( ${#artifact_dirs[@]} != 2 )); then
-            printf 'Expected two successful build artifacts, found %s\n' "${#artifact_dirs[@]}" >&2
+          mapfile -t boot_images < <(find release-files -maxdepth 1 -type f -name '*-boot.img' -print | sort)
+          mapfile -t ak3_packages < <(find release-files -maxdepth 1 -type f -name '*-AnyKernel3.zip' -print | sort)
+          if (( ${#boot_images[@]} != 2 || ${#ak3_packages[@]} != 2 )); then
+            printf 'Expected two boot images and two AnyKernel3 packages, found %s and %s\n' \
+              "${#boot_images[@]}" "${#ak3_packages[@]}" >&2
             exit 1
           fi
 
-          for artifact_dir in "${artifact_dirs[@]}"; do
-            artifact_name="$(basename "$artifact_dir")"
-            prefix="${artifact_name%-${GITHUB_RUN_NUMBER}}"
-            for file in Image Image.gz System.map kernel.config kernel-version.txt boot.img build.json README.txt build.log; do
-              if [[ -f "$artifact_dir/$file" ]]; then
-                install -m 0644 "$artifact_dir/$file" "release-files/$prefix-$file"
-              fi
-            done
-          done
+          kernel_version="$(<release-logs/ksunext/kernel-version.txt)"
+          [[ "$kernel_version" == "$(<release-logs/ksunext-susfs/kernel-version.txt)" ]] || {
+            printf 'Kernel versions differ between variants\n' >&2
+            exit 1
+          }
+          logs_zip="$GITHUB_WORKSPACE/release-files/Nothing-Asteroids-KSUNext-$kernel_version-logs.zip"
+          (
+            cd release-logs
+            zip -q -r9 "$logs_zip" .
+          )
+          printf 'kernel_version=%s\n' "$kernel_version" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         shell: bash
@@ -473,7 +614,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          kernel_version="$(<release-assets/asteroids-ksunext-${GITHUB_RUN_NUMBER}/kernel-version.txt)"
           tag="asteroids-ksunext-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           gh release create \
             "$tag" \
