@@ -176,6 +176,24 @@ jobs:
             "$ANDROID_MANIFEST_URL" \
             "$ANDROID_MANIFEST_BRANCH"
 
+      - name: Canonicalize SUSFS defconfig with Android Clang
+        if: ${{ matrix.susfs }}
+        shell: bash
+        env:
+          KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
+        run: |
+          set -Eeuo pipefail
+          clang_version="$(sed -n 's/^CLANG_VERSION=//p' "$KERNEL_DIR/build.config.constants")"
+          [[ -n "$clang_version" ]] || {
+            printf 'Kernel CLANG_VERSION is missing\n' >&2
+            exit 1
+          }
+          clang_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/clang/host/linux-x86/clang-$clang_version/bin"
+          scripts/canonicalize-defconfig.sh \
+            "$KERNEL_DIR" \
+            "$clang_bin" \
+            "$GITHUB_WORKSPACE/config/ksunext-susfs.config"
+
       - name: Build the Asteroids GKI
         shell: bash
         run: |
