@@ -46,6 +46,8 @@ env:
   SUSFS_PATCH: kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
   PATCHES_REPOSITORY: https://github.com/WildKernels/kernel_patches.git
   PATCHES_COMMIT: 24865a0bc50dfb65b04153cc9ad2879a9c26cc7e
+  MAGISKBOOT_URL: https://raw.githubusercontent.com/Uevo001/magiskboot-linux/b8323c4f2f24c2a552c84b4b437dc40b50fe8485/x86_64/magiskboot
+  MAGISKBOOT_SHA256: 6de21d6ddd6b633aeb40465ffaae027bbef091e72b7aec22bdba6d4ae50416fe
   ANDROID_MANIFEST_URL: https://android.googlesource.com/kernel/manifest
   ANDROID_MANIFEST_BRANCH: common-android14-6.1-2023-06
   KLEAF_TARGET: //common:kernel_aarch64
@@ -242,10 +244,15 @@ jobs:
       - name: Repack verified Asteroids boot image
         shell: bash
         run: |
+          set -Eeuo pipefail
+          magiskboot="$RUNNER_TEMP/magiskboot"
+          curl --fail --location --retry 3 --output "$magiskboot" "$MAGISKBOOT_URL"
+          printf '%s  %s\n' "$MAGISKBOOT_SHA256" "$magiskboot" | sha256sum --check --strict
+          chmod 0755 "$magiskboot"
           scripts/repack-boot.sh \
             "$RUNNER_TEMP/stock-boot.img" \
             "$GITHUB_WORKSPACE/artifacts/Image.gz" \
-            "$RUNNER_TEMP/asteroids-kleaf/tools/mkbootimg" \
+            "$magiskboot" \
             "$GITHUB_WORKSPACE/artifacts/boot.img"
 
       - name: Write build metadata
