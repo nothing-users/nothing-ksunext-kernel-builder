@@ -1,27 +1,33 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (( $# != 4 )); then
-  printf 'Usage: %s KERNEL_SOURCE ANDROID_CLANG_BIN ANDROID_BUILD_TOOLS_BIN CONFIG_FRAGMENT\n' "$0" >&2
+if (( $# < 4 )); then
+  printf 'Usage: %s KERNEL_SOURCE ANDROID_CLANG_BIN ANDROID_BUILD_TOOLS_BIN CONFIG_FRAGMENT...\n' "$0" >&2
   exit 2
 fi
 
 kernel_source="$1"
 clang_bin="$2"
 build_tools_bin="$3"
-config_fragment="$4"
+shift 3
+config_fragments=("$@")
 defconfig="$kernel_source/arch/arm64/configs/gki_defconfig"
 config_out="$(mktemp -d)"
 trap 'rm -rf "$config_out"' EXIT
 
 for required in \
   "$defconfig" \
-  "$config_fragment" \
   "$clang_bin/clang" \
   "$clang_bin/ld.lld" \
   "$build_tools_bin/pahole"; do
   [[ -e "$required" ]] || {
     printf 'Missing defconfig canonicalization input: %s\n' "$required" >&2
+    exit 2
+  }
+done
+for config_fragment in "${config_fragments[@]}"; do
+  [[ -f "$config_fragment" ]] || {
+    printf 'Missing defconfig fragment: %s\n' "$config_fragment" >&2
     exit 2
   }
 done
@@ -59,18 +65,20 @@ grep -qx 'CONFIG_KASAN_HW_TAGS=y' "$config_out/.config" || {
   exit 1
 }
 
-while IFS='=' read -r option value; do
-  [[ -z "$option" || "$option" == \#* ]] && continue
-  if [[ "$value" == n ]]; then
-    expected="# $option is not set"
-  else
-    expected="$option=$value"
-  fi
-  grep -qxF "$expected" "$config_out/.config" || {
-    printf 'Required config was not enabled before canonicalization: %s\n' "$expected" >&2
-    exit 1
-  }
-done < "$config_fragment"
+for config_fragment in "${config_fragments[@]}"; do
+  while IFS='=' read -r option value; do
+    [[ -z "$option" || "$option" == \#* ]] && continue
+    if [[ "$value" == n ]]; then
+      expected="# $option is not set"
+    else
+      expected="$option=$value"
+    fi
+    grep -qxF "$expected" "$config_out/.config" || {
+      printf 'Required config was not enabled before canonicalization: %s\n' "$expected" >&2
+      exit 1
+    }
+  done < "$config_fragment"
+done
 
 install -m 0644 "$config_out/defconfig" "$defconfig"
 printf 'Canonicalized %s with %s and %s\n' \

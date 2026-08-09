@@ -22,6 +22,9 @@ mkdir -p "$artifact_dir"
   cd "$workspace"
   export TARGET_PRODUCT=Asteroids
   ./tools/bazel build \
+    --stamp \
+    --action_env=KBUILD_BUILD_USER=wee \
+    --action_env=KBUILD_BUILD_HOST=mrvoki \
     --ignore_missing_projects \
     "--user_kmi_symbol_lists=$kmi_symbol_list" \
     "$kleaf_target"
@@ -89,7 +92,22 @@ kernel_version="$(strings "$output_dir/Image" | sed -n 's/^Linux version \([^ ]*
   printf 'Unable to determine the built kernel version\n' >&2
   exit 1
 }
+[[ "$kernel_version" == *-nothing-users ]] || {
+  printf 'Unexpected kernel release: %s\n' "$kernel_version" >&2
+  exit 1
+}
+version_line="$(strings "$output_dir/Image" | grep -m1 '^Linux version ' || true)"
+[[ -n "$version_line" && "$version_line" != *maybe-dirty* && "$version_line" != *1970* ]] || {
+  printf 'Invalid embedded kernel version string: %s\n' "$version_line" >&2
+  exit 1
+}
+[[ "$version_line" == *'(wee@mrvoki)'* ]] || {
+  printf 'Unexpected kernel build identity: %s\n' "$version_line" >&2
+  exit 1
+}
 printf '%s\n' "$kernel_version" > "$artifact_dir/kernel-version.txt"
+printf '%s\n' "$version_line" > "$artifact_dir/kernel-version-string.txt"
 
 printf 'Built %s (%s)\n' "$kernel_version" "$kleaf_target"
+printf 'Embedded version: %s\n' "$version_line"
 sha256sum "$artifact_dir/Image" "$artifact_dir/Image.gz"

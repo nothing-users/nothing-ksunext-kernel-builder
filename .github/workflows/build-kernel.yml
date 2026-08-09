@@ -167,6 +167,15 @@ jobs:
           printf 'version=%s\n' "$susfs_version" >> "$GITHUB_OUTPUT"
           printf 'patches_commit=%s\n' "$(git -C "$patches_dir" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Configure kernel identity
+        shell: bash
+        env:
+          KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
+        run: |
+          scripts/configure-kernel-identity.sh \
+            "$KERNEL_DIR" \
+            "$GITHUB_WORKSPACE/config/kernel-identity.config"
+
       - name: Bootstrap Android Kleaf workspace
         shell: bash
         env:
@@ -178,8 +187,7 @@ jobs:
             "$ANDROID_MANIFEST_URL" \
             "$ANDROID_MANIFEST_BRANCH"
 
-      - name: Canonicalize SUSFS defconfig with Android Clang
-        if: ${{ matrix.susfs }}
+      - name: Canonicalize kernel defconfig with Android toolchain
         shell: bash
         env:
           KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
@@ -192,11 +200,15 @@ jobs:
           }
           clang_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/clang/host/linux-x86/clang-$clang_version/bin"
           build_tools_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/kernel-build-tools/linux-x86/bin"
+          config_fragments=("$GITHUB_WORKSPACE/config/kernel-identity.config")
+          if [[ "${{ matrix.susfs }}" == true ]]; then
+            config_fragments+=("$GITHUB_WORKSPACE/config/ksunext-susfs.config")
+          fi
           scripts/canonicalize-defconfig.sh \
             "$KERNEL_DIR" \
             "$clang_bin" \
             "$build_tools_bin" \
-            "$GITHUB_WORKSPACE/config/ksunext-susfs.config"
+            "${config_fragments[@]}"
 
       - name: Build the Asteroids GKI
         shell: bash
