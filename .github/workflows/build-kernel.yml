@@ -189,9 +189,11 @@ jobs:
             exit 1
           }
           clang_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/clang/host/linux-x86/clang-$clang_version/bin"
+          build_tools_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/kernel-build-tools/linux-x86/bin"
           scripts/canonicalize-defconfig.sh \
             "$KERNEL_DIR" \
             "$clang_bin" \
+            "$build_tools_bin" \
             "$GITHUB_WORKSPACE/config/ksunext-susfs.config"
 
       - name: Build the Asteroids GKI

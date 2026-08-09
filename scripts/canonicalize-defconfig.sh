@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (( $# != 3 )); then
-  printf 'Usage: %s KERNEL_SOURCE ANDROID_CLANG_BIN CONFIG_FRAGMENT\n' "$0" >&2
+if (( $# != 4 )); then
+  printf 'Usage: %s KERNEL_SOURCE ANDROID_CLANG_BIN ANDROID_BUILD_TOOLS_BIN CONFIG_FRAGMENT\n' "$0" >&2
   exit 2
 fi
 
 kernel_source="$1"
 clang_bin="$2"
-config_fragment="$3"
+build_tools_bin="$3"
+config_fragment="$4"
 defconfig="$kernel_source/arch/arm64/configs/gki_defconfig"
 config_out="$(mktemp -d)"
 trap 'rm -rf "$config_out"' EXIT
@@ -17,14 +18,15 @@ for required in \
   "$defconfig" \
   "$config_fragment" \
   "$clang_bin/clang" \
-  "$clang_bin/ld.lld"; do
+  "$clang_bin/ld.lld" \
+  "$build_tools_bin/pahole"; do
   [[ -e "$required" ]] || {
     printf 'Missing defconfig canonicalization input: %s\n' "$required" >&2
     exit 2
   }
 done
 
-export PATH="$clang_bin:$PATH"
+export PATH="$clang_bin:$build_tools_bin:$PATH"
 
 # Kconfig compiler probes are target-dependent. In particular,
 # CONFIG_KASAN_HW_TAGS disappears when gki_defconfig is evaluated with the
@@ -71,4 +73,7 @@ while IFS='=' read -r option value; do
 done < "$config_fragment"
 
 install -m 0644 "$config_out/defconfig" "$defconfig"
-printf 'Canonicalized %s with %s\n' "$defconfig" "$(clang --version | sed -n '1p')"
+printf 'Canonicalized %s with %s and %s\n' \
+  "$defconfig" \
+  "$(clang --version | sed -n '1p')" \
+  "$(pahole --version | sed -n '1p')"
