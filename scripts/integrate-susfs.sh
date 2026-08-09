@@ -20,7 +20,8 @@ config_fragment="${11}"
 ksu_driver="$kernel_source/drivers/kernelsu"
 defconfig="$kernel_source/arch/arm64/configs/gki_defconfig"
 patch_logs="$(mktemp -d)"
-trap 'rm -rf "$patch_logs"' EXIT
+config_out="$(mktemp -d)"
+trap 'rm -rf "$patch_logs" "$config_out"' EXIT
 
 case "$ksu_patchset" in
   dev|stable) ;;
@@ -217,6 +218,27 @@ while IFS='=' read -r option value; do
     *) "$kernel_source/scripts/config" --file "$defconfig" --set-val "$symbol" "$value" ;;
   esac
 done < "$config_fragment"
+
+# Kleaf runs check_defconfig and rejects a defconfig that is not in the exact
+# canonical order produced by Kconfig. Resolve dependencies and regenerate the
+# minimal defconfig after applying the SUSFS fragment instead of leaving the
+# requested symbols appended at the end of gki_defconfig.
+make \
+  -C "$kernel_source" \
+  O="$config_out" \
+  ARCH=arm64 \
+  gki_defconfig
+make \
+  -C "$kernel_source" \
+  O="$config_out" \
+  ARCH=arm64 \
+  savedefconfig
+
+[[ -s "$config_out/defconfig" ]] || {
+  printf 'SUSFS canonical defconfig was not generated\n' >&2
+  exit 1
+}
+install -m 0644 "$config_out/defconfig" "$defconfig"
 
 printf 'SUSFS integrated: %s (%s), compatibility patches %s\n' \
   "$susfs_version" "$(git -C "$susfs_source" rev-parse HEAD)" "$resolved_patches_commit"
