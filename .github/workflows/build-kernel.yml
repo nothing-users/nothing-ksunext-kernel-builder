@@ -191,6 +191,15 @@ jobs:
             "$ANDROID_MANIFEST_URL" \
             "$ANDROID_MANIFEST_BRANCH"
 
+      - name: Configure Kleaf build identity
+        shell: bash
+        env:
+          KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
+        run: |
+          scripts/configure-kleaf-identity.sh \
+            "$RUNNER_TEMP/asteroids-kleaf" \
+            "$KERNEL_DIR"
+
       - name: Canonicalize kernel defconfig with Android toolchain
         shell: bash
         env:

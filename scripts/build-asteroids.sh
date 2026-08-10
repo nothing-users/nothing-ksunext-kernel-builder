@@ -22,9 +22,8 @@ mkdir -p "$artifact_dir"
   cd "$workspace"
   export TARGET_PRODUCT=Asteroids
   ./tools/bazel build \
-    --stamp \
-    --action_env=KBUILD_BUILD_USER=wee \
-    --action_env=KBUILD_BUILD_HOST=mrvoki \
+    --nostamp \
+    --nokleaf_localversion \
     --ignore_missing_projects \
     "--user_kmi_symbol_lists=$kmi_symbol_list" \
     "$kleaf_target"
