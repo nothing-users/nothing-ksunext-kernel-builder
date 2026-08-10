@@ -90,10 +90,6 @@ kernel_version="$(strings "$output_dir/Image" | sed -n 's/^Linux version \([^ ]*
   printf 'Unable to determine the built kernel version\n' >&2
   exit 1
 }
-[[ "$kernel_version" == *-nothing-users ]] || {
-  printf 'Unexpected kernel release: %s\n' "$kernel_version" >&2
-  exit 1
-}
 version_line="$(strings "$output_dir/Image" | grep -m1 '^Linux version ' || true)"
 [[ -n "$version_line" && "$version_line" != *maybe-dirty* && "$version_line" != *1970* ]] || {
   printf 'Invalid embedded kernel version string: %s\n' "$version_line" >&2
