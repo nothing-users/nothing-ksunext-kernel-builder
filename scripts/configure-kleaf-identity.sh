@@ -9,11 +9,14 @@ fi
 workspace="$1"
 kernel_source="$2"
 setup_env="$workspace/build/kernel/_setup_env.sh"
+stamp_bzl="$workspace/build/kernel/kleaf/impl/stamp.bzl"
 
-[[ -f "$setup_env" ]] || {
-  printf 'Missing Kleaf environment script: %s\n' "$setup_env" >&2
-  exit 2
-}
+for required in "$setup_env" "$stamp_bzl"; do
+  [[ -f "$required" ]] || {
+    printf 'Missing Kleaf identity input: %s\n' "$required" >&2
+    exit 2
+  }
+done
 git -C "$kernel_source" rev-parse --verify HEAD >/dev/null
 source_date_epoch="$(git -C "$kernel_source" show -s --format=%ct HEAD)"
 [[ "$source_date_epoch" =~ ^[0-9]+$ ]] || {
@@ -46,5 +49,22 @@ if replacements != 1:
 path.write_text(updated)
 PY
 
+python3 - "$stamp_bzl" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '            scmversion="${{scmversion_prefix}}${{stable_scmversion}}"\n'
+new = (
+    "            # CONFIG_LOCALVERSION is the complete release suffix for this builder.\n"
+    '            scmversion=""\n'
+)
+if text.count(old) != 1:
+    raise SystemExit("Could not disable Kleaf-generated scmversion")
+path.write_text(text.replace(old, new, 1))
+PY
+
 chmod +x "$setup_env"
-printf 'Kleaf identity configured: wee@mrvoki, SOURCE_DATE_EPOCH=%s\n' "$source_date_epoch"
+printf 'Kleaf identity configured: wee@mrvoki, SOURCE_DATE_EPOCH=%s, scmversion disabled\n' \
+  "$source_date_epoch"
