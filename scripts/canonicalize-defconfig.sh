@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (( $# < 4 )); then
-  printf 'Usage: %s KERNEL_SOURCE ANDROID_CLANG_BIN ANDROID_BUILD_TOOLS_BIN CONFIG_FRAGMENT...\n' "$0" >&2
+if (( $# < 3 )); then
+  printf 'Usage: %s KERNEL_SOURCE ANDROID_CLANG_BIN ANDROID_BUILD_TOOLS_BIN [CONFIG_FRAGMENT...]\n' "$0" >&2
   exit 2
 fi
 

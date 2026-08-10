@@ -171,15 +171,6 @@ jobs:
           printf 'version=%s\n' "$susfs_version" >> "$GITHUB_OUTPUT"
           printf 'patches_commit=%s\n' "$(git -C "$patches_dir" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Configure kernel identity
-        shell: bash
-        env:
-          KERNEL_DIR: ${{ steps.kernel.outputs.dir }}
-        run: |
-          scripts/configure-kernel-identity.sh \
-            "$KERNEL_DIR" \
-            "$GITHUB_WORKSPACE/config/kernel-identity.config"
-
       - name: Bootstrap Android Kleaf workspace
         shell: bash
         env:
@@ -213,7 +204,7 @@ jobs:
           }
           clang_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/clang/host/linux-x86/clang-$clang_version/bin"
           build_tools_bin="$RUNNER_TEMP/asteroids-kleaf/prebuilts/kernel-build-tools/linux-x86/bin"
-          config_fragments=("$GITHUB_WORKSPACE/config/kernel-identity.config")
+          config_fragments=()
           if [[ "${{ matrix.susfs }}" == true ]]; then
             config_fragments+=("$GITHUB_WORKSPACE/config/ksunext-susfs.config")
           fi

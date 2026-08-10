@@ -22,7 +22,6 @@ mkdir -p "$artifact_dir"
   cd "$workspace"
   export TARGET_PRODUCT=Asteroids
   ./tools/bazel build \
-    --nostamp \
     --ignore_missing_projects \
     "--user_kmi_symbol_lists=$kmi_symbol_list" \
     "$kleaf_target"
@@ -91,7 +90,7 @@ kernel_version="$(strings "$output_dir/Image" | sed -n 's/^Linux version \([^ ]*
   exit 1
 }
 version_line="$(strings "$output_dir/Image" | grep -m1 '^Linux version ' || true)"
-[[ -n "$version_line" && "$version_line" != *maybe-dirty* && "$version_line" != *1970* ]] || {
+[[ -n "$version_line" && "$version_line" != *1970* ]] || {
   printf 'Invalid embedded kernel version string: %s\n' "$version_line" >&2
   exit 1
 }
